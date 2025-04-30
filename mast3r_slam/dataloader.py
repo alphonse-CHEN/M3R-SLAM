@@ -4,7 +4,7 @@ import cv2
 from natsort import natsorted
 import numpy as np
 import torch
-import pyrealsense2 as rs
+# import pyrealsense2 as rs
 import yaml
 
 from mast3r_slam.mast3r_utils import resize_img

@@ -138,3 +138,4 @@ screen.yaml
 *.pt
 *.ini
 notebooks/*
+/.idea

@@ -270,7 +270,11 @@ class RGBFiles(MonocularDataset):
         super().__init__()
         self.use_calibration = False
         self.dataset_path = pathlib.Path(dataset_path)
-        self.rgb_files = natsorted(list((self.dataset_path).glob("*.png")))
+        self.rgb_files = natsorted(list((self.dataset_path).rglob("*.png")))    # IN Case the images are in sub-folders
+        if len(self.rgb_files) == 0:
+            self.rgb_files = natsorted(list((self.dataset_path).rglob("*.jpg")))
+        assert len(self.rgb_files) > 0, "No images found in the dataset path: {}".format(self.dataset_path)
+
         self.timestamps = np.arange(0, len(self.rgb_files)).astype(self.dtype) / 30.0
 
 

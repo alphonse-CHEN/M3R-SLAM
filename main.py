@@ -132,6 +132,7 @@ def run_backend(states, keyframes):
 
 
 if __name__ == "__main__":
+    mp.set_sharing_strategy('file_system')
     mp.set_start_method("spawn")
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.set_grad_enabled(False)

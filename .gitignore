@@ -139,3 +139,4 @@ screen.yaml
 *.ini
 notebooks/*
 /.idea
+/data

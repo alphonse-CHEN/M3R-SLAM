@@ -49,9 +49,11 @@ cd MASt3R-SLAM/
 # git submodule update --init --recursive
 
 pip install -e thirdparty/mast3r
-pip install -e thirdparty/in3d
+
+# Install lietorch from thirdparty (configured to use shared eigen from thirdparty/eigen)
+pip install --no-build-isolation -e thirdparty/lietorch
+
 pip install --no-build-isolation -e .
- 
 
 # Optionally install torchcodec for faster mp4 loading
 pip install torchcodec==0.1

@@ -6,13 +6,12 @@ build-backend = "setuptools.build_meta"
 name = "MAST3R-SLAM"
 version = "0.0.1"
 dependencies = [
-    "numpy==1.26.4",
+    "numpy>=2.0.0",
     "einops",
     "pyrealsense2",
     "evo",
     "natsort",
     # "torchcodec==0.1",
-    "lietorch @ git+https://github.com/princeton-vl/lietorch.git",
     "plyfile",
 ]
 

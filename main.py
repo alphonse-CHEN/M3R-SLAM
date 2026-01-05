@@ -21,7 +21,25 @@ from mast3r_slam.mast3r_utils import (
 )
 from mast3r_slam.multiprocess_utils import new_queue, try_get_msg
 from mast3r_slam.tracker import FrameTracker
-from mast3r_slam.visualization import WindowMsg, run_visualization
+
+try:
+    from mast3r_slam.visualization import WindowMsg, run_visualization
+except ImportError:
+    # If visualization is not available, create dummy classes
+    import dataclasses
+    @dataclasses.dataclass
+    class WindowMsg:
+        is_terminated: bool = False
+        is_paused: bool = False
+        next: bool = False
+        C_conf_threshold: float = 1.5
+    
+    def run_visualization(*args, **kwargs):
+        raise RuntimeError(
+            "Visualization requires in3d to be installed. "
+            "Install it with: pip install -e thirdparty/in3d"
+        )
+
 import torch.multiprocessing as mp
 
 

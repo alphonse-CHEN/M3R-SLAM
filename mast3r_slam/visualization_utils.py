@@ -3,7 +3,23 @@ import imgui
 import matplotlib
 import torch
 import numpy as np
-from in3d.geometry import LineGeometry
+
+try:
+    from in3d.geometry import LineGeometry
+except ImportError:
+    # Fallback if in3d is not installed
+    class LineGeometry:
+        def __init__(self):
+            self.program = None
+            self.lines = []
+            self.colors = []
+        
+        def render(self, camera, mode=None):
+            pass
+        
+        def clear(self):
+            self.lines = []
+            self.colors = []
 
 
 @functools.cache

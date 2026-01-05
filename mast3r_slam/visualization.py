@@ -8,13 +8,22 @@ import torch
 import moderngl
 import moderngl_window as mglw
 import numpy as np
-from in3d.camera import Camera, ProjectionMatrix, lookat
-from in3d.pose_utils import translation_matrix
-from in3d.color import hex2rgba
-from in3d.geometry import Axis
-from in3d.viewport_window import ViewportWindow
-from in3d.window import WindowEvents
-from in3d.image import Image
+
+try:
+    from in3d.camera import Camera, ProjectionMatrix, lookat
+    from in3d.pose_utils import translation_matrix
+    from in3d.color import hex2rgba
+    from in3d.geometry import Axis
+    from in3d.viewport_window import ViewportWindow
+    from in3d.window import WindowEvents
+    from in3d.image import Image
+except ImportError:
+    raise ImportError(
+        "in3d is required for visualization. "
+        "You can disable visualization with the --no_viz flag to run without visualization. "
+        "If you need visualization, install in3d from thirdparty/in3d with: pip install -e thirdparty/in3d"
+    )
+
 from moderngl_window import resources
 from moderngl_window.timers.clock import Timer
 

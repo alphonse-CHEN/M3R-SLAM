@@ -9,7 +9,6 @@ dependencies = [
     "numpy>=2.0.0",
     "einops",
     "pyrealsense2",
-    "evo",
     "natsort",
     # "torchcodec==0.1",
     "plyfile",

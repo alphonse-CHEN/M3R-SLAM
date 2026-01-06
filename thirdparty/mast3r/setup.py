@@ -1,7 +1,7 @@
 from pathlib import Path
 from setuptools import setup
 
-curope = Path("/d_disk/pow3r/dust3r/croco/models/curope")
+curope = Path(__file__).parent / "dust3r" / "croco" / "models" / "curope"
 
 asmk = Path(__file__).parent / "asmk"
 setup(

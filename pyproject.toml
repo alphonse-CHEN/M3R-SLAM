@@ -12,6 +12,7 @@ dependencies = [
     "natsort",
     # "torchcodec==0.1",
     "plyfile",
+    "nvidia-ml-py",
 ]
 
 [tool.setuptools.packages.find]

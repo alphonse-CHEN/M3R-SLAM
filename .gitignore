@@ -140,3 +140,4 @@ screen.yaml
 notebooks/*
 /.idea
 /data
+/.devcontainer

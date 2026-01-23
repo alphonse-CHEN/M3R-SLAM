@@ -12,9 +12,14 @@ from plyfile import PlyData, PlyElement
 
 
 def prepare_savedir(args, dataset):
-    save_dir = pathlib.Path("logs")
     if args.save_as != "default":
-        save_dir = save_dir / args.save_as
+        save_dir = pathlib.Path(args.save_as)
+        if not save_dir.is_absolute():
+            save_dir = pathlib.Path("logs") / args.save_as
+        # Add m3rResults subfolder for organized output
+        save_dir = save_dir / "m3rResults"
+    else:
+        save_dir = pathlib.Path("logs")
     save_dir.mkdir(exist_ok=True, parents=True)
     seq_name = dataset.dataset_path.stem
     return save_dir, seq_name

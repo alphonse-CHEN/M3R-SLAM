@@ -235,3 +235,48 @@ Each `setup.py` that compiles CUDA extensions needed two changes on Windows:
 
 These changes are **no-ops on Linux** (the `platform.system()` guard ensures
 only the original flags are used on non-Windows platforms).
+
+---
+
+### A.4 Linker Error: `mutable_data_ptr<long>` Unresolved (`LNK2001` / `LNK1120`)
+
+**Symptom:**
+
+```
+gn_kernels.obj : error LNK2001: unresolved external symbol
+  "public: long * __cdecl at::TensorBase::mutable_data_ptr<long>(void)const"
+```
+
+**Root Cause:**
+
+Windows uses the **LLP64** data model:
+
+| Type | Linux (LP64) | Windows (LLP64) |
+|------|-------------|-----------------|
+| `long` | 64-bit | **32-bit** |
+| `long long` | 64-bit | 64-bit |
+| `int64_t` | `long` | `long long` |
+
+PyTorch's `torch.long` maps to `int64_t`. On Linux, `int64_t` == `long`, so
+`packed_accessor32<long,...>` works. On Windows, `int64_t` == `long long`, so
+`packed_accessor32<long,...>` instantiates a **different** template specialization
+that PyTorch never exports — causing `LNK2001`.
+
+**Fix:**
+
+Replace all `long` template arguments with `int64_t` in CUDA kernel code:
+
+```cpp
+// Before (works on Linux, fails on Windows):
+ii.packed_accessor32<long,1,torch::RestrictPtrTraits>()
+auto ii_acc = ii_cpu.accessor<long,1>();
+typedef std::vector<std::vector<long>> graph_t;
+
+// After (works on both):
+ii.packed_accessor32<int64_t,1,torch::RestrictPtrTraits>()
+auto ii_acc = ii_cpu.accessor<int64_t,1>();
+typedef std::vector<std::vector<int64_t>> graph_t;
+```
+
+**Affected files:** `mast3r_slam/backend/src/gn_kernels.cu`,
+`mast3r_slam/backend/src/matching_kernels.cu`.

@@ -26,8 +26,8 @@ template <typename scalar_t>
 __global__ void refine_matches_kernel(
     const torch::PackedTensorAccessor32<scalar_t,4,torch::RestrictPtrTraits> D11,
     const torch::PackedTensorAccessor32<scalar_t,3,torch::RestrictPtrTraits> D21,
-    const torch::PackedTensorAccessor32<long,3,torch::RestrictPtrTraits> p1,
-    torch::PackedTensorAccessor32<long,3,torch::RestrictPtrTraits> p1_new,
+    const torch::PackedTensorAccessor32<int64_t,3,torch::RestrictPtrTraits> p1,
+    torch::PackedTensorAccessor32<int64_t,3,torch::RestrictPtrTraits> p1_new,
     const int radius,
     const int dilation_max
     )
@@ -104,8 +104,8 @@ std::vector<torch::Tensor> refine_matches_cuda(
     refine_matches_kernel<scalar_t><<<blocks, threads>>>(
       D11.packed_accessor32<scalar_t,4,torch::RestrictPtrTraits>(),
       D21.packed_accessor32<scalar_t,3,torch::RestrictPtrTraits>(),
-      p1.packed_accessor32<long,3,torch::RestrictPtrTraits>(),
-      p1_new.packed_accessor32<long,3,torch::RestrictPtrTraits>(),
+      p1.packed_accessor32<int64_t,3,torch::RestrictPtrTraits>(),
+      p1_new.packed_accessor32<int64_t,3,torch::RestrictPtrTraits>(),
       radius,
       dilation
     );

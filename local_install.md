@@ -96,3 +96,142 @@ pip install --no-build-isolation -e .
 - The repository has integrated third-party code directly (not as git submodules)
 - `--no-build-isolation` is required for lietorch and the main project due to shared dependencies
 - MASt3R doesn't need `-e` flag as it's not being actively developed
+
+---
+
+## Appendix A: Windows CUDA Compilation Issues & Workarounds
+
+### A.1 `compute_120` Unsupported on CUDA 12.6
+
+**Symptom:**
+
+```
+nvcc fatal   : Unsupported gpu architecture 'compute_120'
+```
+
+**Root Cause:**
+
+The RTX 5090 uses SM 12.0 (`compute_120` / `sm_120`), but this architecture
+is only supported starting from **CUDA 12.8**. Hardcoding `-gencode=arch=compute_120,code=sm_120`
+in `setup.py` causes `nvcc` to fail on CUDA 12.6 and earlier.
+
+**Fix:**
+
+Auto-detect the installed CUDA version by parsing `nvcc --version` output, and
+only add `compute_120` when CUDA >= 12.8:
+
+```python
+import re, subprocess
+
+def get_cuda_version():
+    try:
+        output = subprocess.check_output(["nvcc", "--version"]).decode()
+        match = re.search(r"release (\d+)\.(\d+)", output)
+        if match:
+            return int(match.group(1)), int(match.group(2))
+    except Exception:
+        pass
+    return None
+
+def get_nvcc_gencode_flags():
+    cuda_ver = get_cuda_version()
+    archs = ["70", "75", "80", "86", "89", "90"]
+    if cuda_ver and (cuda_ver[0] > 12 or (cuda_ver[0] == 12 and cuda_ver[1] >= 8)):
+        archs.append("120")
+    return [f"-gencode=arch=compute_{a},code=sm_{a}" for a in archs]
+```
+
+**Affected files:** `setup.py` (main project), `thirdparty/curope/setup.py`,
+`thirdparty/lietorch/setup.py`.
+
+---
+
+### A.2 `std` Namespace Ambiguity (`error C2872`) on Windows MSVC
+
+**Symptom:**
+
+```
+torch/csrc/dynamo/compiled_autograd.h(1135): error C2872: "std": 不明确的符号
+  可能是"std"  (from Eigen/src/Core/arch/Default/BFloat16.h)
+  或     "std"  (from compiled_autograd.h)
+```
+
+The error fires during NVCC compilation of any `.cu` file that transitively
+includes both PyTorch headers and Eigen headers.
+
+**Root Cause:**
+
+In PyTorch 2.10, the header `torch/csrc/dynamo/compiled_autograd.h` contains:
+
+```cpp
+namespace torch::dynamo::autograd {
+  using namespace torch::autograd;   // <-- pulls in torch::autograd::*
+  ...
+}
+```
+
+`torch::autograd` itself does `using namespace std;` in some paths. When Eigen
+headers are also included, they define items in `::std` (e.g. `BFloat16`
+numeric traits). MSVC then cannot resolve bare `std::` references inside the
+`IValuePacker` template at line 1135 of `compiled_autograd.h` because it sees
+two candidates for the `std` symbol.
+
+This does **not** occur on Linux/GCC because GCC handles nested `using namespace`
+differently in template instantiation.
+
+**Attempted fixes that did NOT work:**
+
+1. **Reordering `#include` directives** — moving Eigen before/after PyTorch
+   headers. The conflict is structural, not order-dependent.
+
+2. **`#define TORCH_DISABLE_DYNAMO_COMPILE_AUTOGRAD`** — this macro does not
+   exist and has no effect.
+
+3. **Patching the header with `sed`** — replacing `std::` with `::std::` in
+   `compiled_autograd.h`. This is fragile, breaks on PyTorch upgrades, and
+   requires maintaining a `.bak` file.
+
+4. **`#define TORCH_STABLE_ONLY`** — does not guard the problematic code path.
+
+**Fix that works — define `USE_CUDA`:**
+
+PyTorch's `compiled_autograd.h` has a platform guard:
+
+```cpp
+#if defined(_WIN32) && (defined(USE_CUDA) || defined(USE_ROCM))
+  // Skips the problematic if-constexpr chain that triggers C2872
+#endif
+```
+
+When `USE_CUDA` is defined, PyTorch takes an alternative code path on Windows
+that avoids the ambiguous `std` resolution. The fix is to add the define to
+**both** CXX and NVCC compiler flags in `setup.py`:
+
+```python
+import platform
+
+if platform.system() == "Windows":
+    extra_cxx  = ["/O2", "/DUSE_CUDA"]
+    extra_nvcc = ["-O2", "-DUSE_CUDA"] + get_nvcc_gencode_flags()
+else:
+    extra_cxx  = ["-O3"]
+    extra_nvcc = ["-O3"]
+```
+
+**Affected files:** `thirdparty/curope/setup.py`, `thirdparty/lietorch/setup.py`,
+`setup.py` (main project) — every `setup.py` that builds a `CUDAExtension`
+on Windows with PyTorch 2.10.
+
+---
+
+### A.3 Summary of `setup.py` Modifications
+
+Each `setup.py` that compiles CUDA extensions needed two changes on Windows:
+
+| Change | Why |
+|--------|-----|
+| Auto-detect CUDA version for gencode flags | Avoid `compute_120` on CUDA < 12.8 |
+| Add `/DUSE_CUDA` (CXX) and `-DUSE_CUDA` (NVCC) | Bypass `std` ambiguity in PyTorch's `compiled_autograd.h` |
+
+These changes are **no-ops on Linux** (the `platform.system()` guard ensures
+only the original flags are used on non-Windows platforms).

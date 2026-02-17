@@ -4,9 +4,37 @@ from setuptools import setup
 import torch
 from torch.utils.cpp_extension import BuildExtension, CppExtension
 import os
+import platform
+import re
+import subprocess
 
-ROOT = os.path.dirname(os. path.abspath(__file__))
+ROOT = os.path.dirname(os.path.abspath(__file__))
 has_cuda = torch.cuda.is_available()
+
+
+def get_cuda_version():
+    """Detect CUDA version from nvcc to determine supported architectures."""
+    try:
+        output = subprocess.check_output(["nvcc", "--version"]).decode()
+        match = re.search(r"release (\d+)\.(\d+)", output)
+        if match:
+            return int(match.group(1)), int(match.group(2))
+    except Exception:
+        pass
+    return None
+
+
+def get_nvcc_gencode_flags():
+    """Build gencode flags based on detected CUDA version."""
+    cuda_ver = get_cuda_version()
+    archs = ["70", "75", "80", "86", "89", "90"]
+    if cuda_ver and (cuda_ver[0] > 12 or (cuda_ver[0] == 12 and cuda_ver[1] >= 8)):
+        archs.append("120")
+    flags = []
+    for a in archs:
+        flags.append(f"-gencode=arch=compute_{a},code=sm_{a}")
+    return flags
+
 
 include_dirs = [
     os.path.join(ROOT, "mast3r_slam/backend/include"),
@@ -16,28 +44,30 @@ include_dirs = [
 sources = [
     "mast3r_slam/backend/src/gn.cpp",
 ]
-extra_compile_args = {
-    "cores": ["j8"],
-    "cxx": ["-O3"],
-}
+
+# Platform-specific compiler flags
+if platform.system() == "Windows":
+    extra_compile_args = {
+        "cores": ["j8"],
+        "cxx": ["/O2", "/DUSE_CUDA"],
+    }
+else:
+    extra_compile_args = {
+        "cores": ["j8"],
+        "cxx": ["-O3"],
+    }
 
 if has_cuda:
     from torch.utils.cpp_extension import CUDAExtension
 
     sources.append("mast3r_slam/backend/src/gn_kernels.cu")
     sources.append("mast3r_slam/backend/src/matching_kernels.cu")
-    extra_compile_args["nvcc"] = [
-        "-O3",
-        "-gencode=arch=compute_60,code=sm_60",
-        "-gencode=arch=compute_61,code=sm_61",
-        "-gencode=arch=compute_70,code=sm_70",
-        "-gencode=arch=compute_75,code=sm_75",
-        "-gencode=arch=compute_80,code=sm_80",
-        "-gencode=arch=compute_86,code=sm_86",
-        "-gencode=arch=compute_89,code=sm_89",
-        "-gencode=arch=compute_90,code=sm_90",
-        "-gencode=arch=compute_120,code=sm_120",  # Added for RTX 5090
-    ]
+
+    nvcc_flags = ["-O3"] + get_nvcc_gencode_flags()
+    if platform.system() == "Windows":
+        nvcc_flags.append("-DUSE_CUDA")
+    extra_compile_args["nvcc"] = nvcc_flags
+
     ext_modules = [
         CUDAExtension(
             "mast3r_slam_backends",

@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools", "torch"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "curope"
+version = "0.1.0"
+description = "CUDA-accelerated 2D Rotary Position Embedding (RoPE) for Vision Transformers"
+requires-python = ">=3.10"
+dependencies = ["torch"]
+
+[tool.setuptools]
+py-modules = []

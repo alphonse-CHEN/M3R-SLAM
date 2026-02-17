@@ -1,8 +1,45 @@
 from setuptools import setup
 import os
+import platform
+import re
+import subprocess
 from torch.utils.cpp_extension import BuildExtension, CUDAExtension
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
+
+
+def get_cuda_version():
+    """Detect CUDA version from nvcc to determine supported architectures."""
+    try:
+        output = subprocess.check_output(["nvcc", "--version"]).decode()
+        match = re.search(r"release (\d+)\.(\d+)", output)
+        if match:
+            return int(match.group(1)), int(match.group(2))
+    except Exception:
+        pass
+    return None
+
+
+def get_nvcc_gencode_flags():
+    """Build gencode flags based on detected CUDA version."""
+    cuda_ver = get_cuda_version()
+    archs = ["70", "75", "80", "86", "89", "90"]
+    if cuda_ver and (cuda_ver[0] > 12 or (cuda_ver[0] == 12 and cuda_ver[1] >= 8)):
+        archs.append("120")
+    flags = []
+    for a in archs:
+        flags.append(f"-gencode=arch=compute_{a},code=sm_{a}")
+    return flags
+
+
+# Platform-specific compiler flags
+if platform.system() == "Windows":
+    extra_cxx = ["/O2", "/DUSE_CUDA"]
+    extra_nvcc = ["-O2", "-DUSE_CUDA"] + get_nvcc_gencode_flags()
+else:
+    extra_cxx = ["-O2"]
+    extra_nvcc = ["-O2"]
+
 
 setup(
     name="lietorch",
@@ -20,8 +57,8 @@ setup(
                 "lietorch/src/lietorch_gpu.cu",
                 "lietorch/src/lietorch_cpu.cpp"],
             extra_compile_args={
-                "cxx": ["-O2"], 
-                "nvcc": ["-O2"],
+                "cxx": extra_cxx, 
+                "nvcc": extra_nvcc,
             }),
 
         CUDAExtension("lietorch_extras", 
@@ -34,8 +71,8 @@ setup(
                 "lietorch/extras/extras.cpp",
             ],
             extra_compile_args={
-                "cxx": ["-O2"], 
-                "nvcc": ["-O2"],
+                "cxx": extra_cxx, 
+                "nvcc": extra_nvcc,
             }),
     ],
     cmdclass={ "build_ext": BuildExtension }

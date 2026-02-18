@@ -35,7 +35,11 @@ def get_nvcc_gencode_flags():
 # Platform-specific compiler flags
 if platform.system() == "Windows":
     extra_cxx = ["/O2", "/DUSE_CUDA"]
-    extra_nvcc = ["-O2", "-DUSE_CUDA"] + get_nvcc_gencode_flags()
+    extra_nvcc = [
+        "-O2", "-DUSE_CUDA",
+        "--expt-relaxed-constexpr",
+        "--expt-extended-lambda",
+    ] + get_nvcc_gencode_flags()
 else:
     extra_cxx = ["-O2"]
     extra_nvcc = ["-O2"]

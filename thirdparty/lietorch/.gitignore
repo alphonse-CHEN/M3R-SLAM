@@ -8,6 +8,11 @@ tests
 checkpoints
 datasets
 runs
+
+# Don't track loose binaries at repo root — use prebuilt/<platform>/ instead
+*.so
+*.pyd
+*.dll
 a.out
 cache
 *.g2o

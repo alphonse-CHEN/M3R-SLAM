@@ -11,12 +11,15 @@ from mast3r_slam.geometry import constrain_points_to_ray
 from plyfile import PlyData, PlyElement
 
 
-def prepare_savedir(args, dataset):
-    save_dir = pathlib.Path("logs")
-    if args.save_as != "default":
-        save_dir = save_dir / args.save_as
-    save_dir.mkdir(exist_ok=True, parents=True)
+def prepare_savedir(args, dataset, run_id=None):
     seq_name = dataset.dataset_path.stem
+    if run_id:
+        save_dir = pathlib.Path("logs") / seq_name / run_id
+    elif args.save_as != "default":
+        save_dir = pathlib.Path("logs") / args.save_as
+    else:
+        save_dir = pathlib.Path("logs") / seq_name / "latest"
+    save_dir.mkdir(exist_ok=True, parents=True)
     return save_dir, seq_name
 
 

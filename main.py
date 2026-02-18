@@ -10,7 +10,7 @@ import tqdm
 import yaml
 from mast3r_slam.global_opt import FactorGraph
 
-from mast3r_slam.config import load_config, config, set_global_config
+from mast3r_slam.config import load_config, config
 from mast3r_slam.dataloader import Intrinsics, load_dataset
 import mast3r_slam.evaluate as eval
 from mast3r_slam.frame import Mode, SharedKeyframes, SharedStates, create_frame
@@ -19,13 +19,23 @@ from mast3r_slam.mast3r_utils import (
     load_retriever,
     mast3r_inference_mono,
 )
-from mast3r_slam.multiprocess_utils import new_queue, try_get_msg
+from mast3r_slam.multiprocess_utils import new_queue, try_get_msg, FakeManager
 from mast3r_slam.tracker import FrameTracker
 
+# Visualization backends: Rerun (preferred) or in3d (legacy)
 try:
-    from mast3r_slam.visualization import WindowMsg, run_visualization
+    from mast3r_slam.rerun_viz import RerunVisualizer, WindowMsg
+    HAS_RERUN = True
 except ImportError:
-    # If visualization is not available, create dummy classes
+    HAS_RERUN = False
+
+try:
+    from mast3r_slam.visualization import WindowMsg as _LegacyWindowMsg, run_visualization
+    HAS_IN3D = True
+except ImportError:
+    HAS_IN3D = False
+
+if not HAS_RERUN and not HAS_IN3D:
     import dataclasses
     @dataclasses.dataclass
     class WindowMsg:
@@ -33,12 +43,17 @@ except ImportError:
         is_paused: bool = False
         next: bool = False
         C_conf_threshold: float = 1.5
-    
+
     def run_visualization(*args, **kwargs):
         raise RuntimeError(
-            "Visualization requires in3d to be installed. "
-            "Install it with: pip install -e thirdparty/in3d"
+            "No visualization backend available. "
+            "Install rerun-sdk (pip install rerun-sdk) or in3d."
         )
+
+if not HAS_RERUN:
+    # Use legacy WindowMsg if rerun is not available
+    if HAS_IN3D:
+        WindowMsg = _LegacyWindowMsg
 
 import torch.multiprocessing as mp
 
@@ -150,29 +165,56 @@ def run_backend(states, keyframes):
 
 
 if __name__ == "__main__":
-    mp.set_sharing_strategy('file_system')
-    mp.set_start_method("spawn")
     torch.backends.cuda.matmul.allow_tf32 = True
 
     torch.set_grad_enabled(False)
     device = "cuda:0"
     save_frames = False
-    datetime_now = str(datetime.datetime.now()).replace(" ", "_")
+    datetime_now = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", default="datasets/tum/rgbd_dataset_freiburg1_desk")
     parser.add_argument("--config", default="config/base.yaml")
     parser.add_argument("--save-as", default="default")
     parser.add_argument("--no-viz", action="store_true")
+    parser.add_argument("--rerun", action="store_true", help="Use Rerun visualizer (works in single-thread mode)")
     parser.add_argument("--calib", default="")
 
     args = parser.parse_args()
 
     load_config(args.config)
+
+    # --- Auto-adapt subsample based on available GPU memory ---
+    if torch.cuda.is_available():
+        free_mem, total_mem = torch.cuda.mem_get_info(device)
+        total_gb = total_mem / (1024 ** 3)
+        cfg_sub = config["dataset"]["subsample"]
+        if total_gb < 10:        # 8 GB class (e.g. RTX 4060 Laptop)
+            auto_sub = max(cfg_sub, 5)
+        elif total_gb < 14:      # 12 GB class (e.g. RTX 4070)
+            auto_sub = max(cfg_sub, 3)
+        elif total_gb < 18:      # 16 GB class (e.g. RTX 4080)
+            auto_sub = max(cfg_sub, 2)
+        else:                    # 24 GB+ (RTX 4090, A6000, etc.)
+            auto_sub = cfg_sub   # use config as-is
+        if auto_sub != cfg_sub:
+            print(f"[GPU auto-adapt] {total_gb:.1f} GB VRAM detected — "
+                  f"subsample {cfg_sub} → {auto_sub}")
+            config["dataset"]["subsample"] = auto_sub
+
     print(args.dataset)
     print(config)
 
-    manager = mp.Manager()
+    single_thread = config.get("single_thread", False)
+    use_rerun = args.rerun and HAS_RERUN
+    if single_thread:
+        manager = FakeManager()
+        if not use_rerun:
+            args.no_viz = True  # legacy in3d visualization requires multiprocessing
+    else:
+        mp.set_sharing_strategy('file_system')
+        mp.set_start_method("spawn")
+        manager = mp.Manager()
     main2viz = new_queue(manager, args.no_viz)
     viz2main = new_queue(manager, args.no_viz)
 
@@ -195,15 +237,28 @@ if __name__ == "__main__":
     keyframes = SharedKeyframes(manager, h, w)
     states = SharedStates(manager, h, w)
 
-    if not args.no_viz:
+    # Load models FIRST (heavy GPU memory), then start visualization
+    model = load_mast3r(device=device)
+    if not single_thread:
+        model.share_memory()
+
+    # Create a per-run output directory: logs/<seq_name>/<timestamp>/
+    seq_name = dataset.dataset_path.stem
+    output_dir = pathlib.Path("logs") / seq_name / datetime_now
+    output_dir.mkdir(parents=True, exist_ok=True)
+    print(f"Output directory: {output_dir}")
+
+    rerun_viz = None
+    if use_rerun and not args.no_viz:
+        rrd_path = str(output_dir / f"{seq_name}.rrd")
+        rerun_viz = RerunVisualizer(states, keyframes, save_path=rrd_path)
+        print("Rerun visualization active")
+    elif not args.no_viz:
         viz = mp.Process(
             target=run_visualization,
             args=(config, states, keyframes, main2viz, viz2main),
         )
         viz.start()
-
-    model = load_mast3r(device=device)
-    model.share_memory()
 
     has_calib = dataset.has_calib()
     use_calib = config["use_calib"]
@@ -218,15 +273,7 @@ if __name__ == "__main__":
         )
         keyframes.set_intrinsics(K)
 
-    # remove the trajectory from the previous run
-    if dataset.save_results:
-        save_dir, seq_name = eval.prepare_savedir(args, dataset)
-        traj_file = save_dir / f"{seq_name}.txt"
-        recon_file = save_dir / f"{seq_name}.ply"
-        if traj_file.exists():
-            traj_file.unlink()
-        if recon_file.exists():
-            recon_file.unlink()
+    # No need to remove old results — each run gets its own timestamped folder
 
     tracker = FrameTracker(model, keyframes, device)
     last_msg = WindowMsg()
@@ -302,6 +349,10 @@ if __name__ == "__main__":
 
         run_backend(states, keyframes)
 
+        # Update Rerun visualization (inline, no multiprocessing needed)
+        if rerun_viz is not None:
+            rerun_viz.update(frame_idx=i)
+
         # log time
         if i % 30 == 0:
             FPS = i / (time.time() - fps_timer)
@@ -309,25 +360,24 @@ if __name__ == "__main__":
         i += 1
 
     if dataset.save_results:
-        save_dir, seq_name = eval.prepare_savedir(args, dataset)
-        eval.save_traj(save_dir, f"{seq_name}.txt", dataset.timestamps, keyframes)
+        eval.save_traj(output_dir, f"{seq_name}.txt", dataset.timestamps, keyframes)
         eval.save_reconstruction(
-            save_dir,
+            output_dir,
             f"{seq_name}.ply",
             keyframes,
             last_msg.C_conf_threshold,
         )
         eval.save_keyframes(
-            save_dir / "keyframes" / seq_name, dataset.timestamps, keyframes
+            output_dir / "keyframes", dataset.timestamps, keyframes
         )
     if save_frames:
-        savedir = pathlib.Path(f"logs/frames/{datetime_now}")
-        savedir.mkdir(exist_ok=True, parents=True)
+        frames_dir = output_dir / "frames"
+        frames_dir.mkdir(exist_ok=True, parents=True)
         for i, frame in tqdm.tqdm(enumerate(frames), total=len(frames)):
             frame = (frame * 255).clip(0, 255)
             frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-            cv2.imwrite(f"{savedir}/{i}.png", frame)
+            cv2.imwrite(str(frames_dir / f"{i}.png"), frame)
 
     print("done")
-    if not args.no_viz:
+    if not args.no_viz and not use_rerun:
         viz.join()

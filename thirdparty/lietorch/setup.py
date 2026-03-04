@@ -39,6 +39,7 @@ if platform.system() == "Windows":
         "-O2", "-DUSE_CUDA",
         "--expt-relaxed-constexpr",
         "--expt-extended-lambda",
+        "-allow-unsupported-compiler",  # CUDA 12.6 host_config.h may reject newer MSVC
     ] + get_nvcc_gencode_flags()
 else:
     extra_cxx = ["-O2"]

@@ -66,6 +66,7 @@ if has_cuda:
     nvcc_flags = ["-O3"] + get_nvcc_gencode_flags()
     if platform.system() == "Windows":
         nvcc_flags.append("-DUSE_CUDA")
+        nvcc_flags.append("-allow-unsupported-compiler")
     extra_compile_args["nvcc"] = nvcc_flags
 
     ext_modules = [

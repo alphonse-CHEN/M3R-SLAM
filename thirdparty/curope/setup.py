@@ -49,6 +49,8 @@ extra_nvcc = ['-O3','--ptxas-options=-v',"--use_fast_math"]
 if platform.system() == 'Windows':
     extra_cxx.append('/DUSE_CUDA')
     extra_nvcc.append('-DUSE_CUDA')
+    # CUDA 12.6 host_config.h may reject newer MSVC; allow override
+    extra_nvcc.append('-allow-unsupported-compiler')
 
 setup(
     name = 'curope',
